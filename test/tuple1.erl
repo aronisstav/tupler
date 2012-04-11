@@ -1,4 +1,4 @@
--module(example1).
+-module(tuple1).
 
 -export([foo/1]).
 
