@@ -13,6 +13,14 @@
 	  records        = dict:new() :: dict()
 	 }).
 
+%% -define(DEBUG, on).
+-ifdef(DEBUG).
+-define(debug(A, B), io:format(A, B)).
+-else.
+-define(debug(A, B), ok).
+-endif.
+-define(debug(A), ?debug(A, [])).
+
 -spec analyze(file:filename()) -> [term()].
 
 analyze(Filename) ->
@@ -31,11 +39,11 @@ analyze_abstract([], #state{warnings = Warnings}) ->
 analyze_abstract([Form|Rest], State) ->
   case erl_syntax:type(Form) of
     function ->
-      Line    = erl_syntax:get_pos(Form),
+      _Line    = erl_syntax:get_pos(Form),
       Name    = erl_syntax:concrete(erl_syntax:function_name(Form)),
       Arity   = erl_syntax:function_arity(Form),
       Clauses = erl_syntax:function_clauses(Form),
-      io:format("L~w: ~w/~w\n",[Line, Name, Arity]),
+      ?debug("L~w: ~w/~w\n",[_Line, Name, Arity]),
       NewState = analyze_function_clauses(Name, Arity, Clauses, State),
       analyze_abstract(Rest, NewState);
     attribute ->
@@ -43,7 +51,7 @@ analyze_abstract([Form|Rest], State) ->
 	module ->
 	  [Module] = [erl_syntax:concrete(Arg) ||
 		       Arg <- erl_syntax:attribute_arguments(Form)],
-	  io:format("Module: ~w\n",[Module]),
+	  ?debug("Module: ~w\n",[Module]),
 	  analyze_abstract(Rest, State#state{module = Module});
 	record ->
 	  [TName, TFields] = erl_syntax:attribute_arguments(Form),
@@ -55,17 +63,17 @@ analyze_abstract([Form|Rest], State) ->
 		  TTField <- erl_syntax:tuple_elements(TFields)
 		]
 	    ],
-	  io:format("Record: ~p, ~p\n",[Name, Fields]),
+	  ?debug("Record: ~p, ~p\n",[Name, Fields]),
 	  NewState =
 	    State#state{records =
 			  dict:store(Name, Fields, State#state.records)},
 	  analyze_abstract(Rest, NewState);
-	Other ->
-	  io:format("Ignore attribute ~w: ~w\n",[Other, Form]),
+	_Other ->
+	  ?debug("Ignore attribute ~w: ~w\n",[_Other, Form]),
 	  analyze_abstract(Rest, State)
       end;
-    Other ->
-      io:format("Ignore ~w: ~w\n",[Other, Form]),
+    _Other ->
+      ?debug("Ignore ~w: ~w\n",[_Other, Form]),
       analyze_abstract(Rest, State)
   end.
 
@@ -79,13 +87,13 @@ analyze_function_clauses(Name, Arity, Clauses, State) ->
 analyze_function_clauses([], State) ->
   State;
 analyze_function_clauses([Clause|Rest], State) ->
-  io:format("Clause:\n"),
+  ?debug("Clause:\n"),
   Patterns = erl_syntax:clause_patterns(Clause),
   Guard    = erl_syntax:clause_guard(Clause),
   Body     = erl_syntax:clause_body(Clause),
-  io:format("Patterns:\n~p\n",[Patterns]),
-  io:format("Guard:\n~p\n",[Guard]),
-  io:format("Body:\n~p\n",[Body]),
+  ?debug("Patterns:\n~p\n",[Patterns]),
+  ?debug("Guard:\n~p\n",[Guard]),
+  ?debug("Body:\n~p\n",[Body]),
   
   analyze_function_clauses(Rest, State).
   
