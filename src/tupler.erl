@@ -5,11 +5,12 @@
 -export([analyze/1]).
 
 -record(state, {
-	  warnings       = [] :: list(),
-	  module              :: atom(),
-	  function_name       :: atom(),
-	  function_arity      :: integer(),
-	  parameter_info = [] :: list()
+	  warnings       = []         :: list(),
+	  module                      :: atom(),
+	  function_name               :: atom(),
+	  function_arity              :: integer(),
+	  parameter_info = []         :: list(),
+	  records        = dict:new() :: dict()
 	 }).
 
 -spec analyze(file:filename()) -> [term()].
@@ -44,6 +45,21 @@ analyze_abstract([Form|Rest], State) ->
 		       Arg <- erl_syntax:attribute_arguments(Form)],
 	  io:format("Module: ~w\n",[Module]),
 	  analyze_abstract(Rest, State#state{module = Module});
+	record ->
+	  [TName, TFields] = erl_syntax:attribute_arguments(Form),
+	  Name = erl_syntax:data(TName),
+	  Fields =
+	    [erl_syntax:concrete(FName) ||
+	      FName <-
+		[erl_syntax:record_field_name(TTField) ||
+		  TTField <- erl_syntax:tuple_elements(TFields)
+		]
+	    ],
+	  io:format("Record: ~p, ~p\n",[Name, Fields]),
+	  NewState =
+	    State#state{records =
+			  dict:store(Name, Fields, State#state.records)},
+	  analyze_abstract(Rest, NewState);
 	Other ->
 	  io:format("Ignore attribute ~w: ~w\n",[Other, Form]),
 	  analyze_abstract(Rest, State)
