@@ -21,8 +21,8 @@ echo "Parsing Results."
 
 for name in test/out/*.out.txt;
 do
+	var=$(basename $name .out.txt)
 	if [[ -e "test/correct/${var}.out.txt" ]] ; then
-		var=$(basename $name .out.txt)
 		diff ${name}  test/correct/${var}.out.txt > aux.txt
 		if [[ -s "./aux.txt" ]] ; then
 			echo "ERROR: @ $name"
