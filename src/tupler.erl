@@ -19,7 +19,7 @@
 	  as_record = none  :: none | {one, atom(), [atom()]} | multiple
 	 }).
 
-%% -define(DEBUG, on).
+-define(DEBUG, on).
 -ifdef(DEBUG).
 -define(debug(A, B), io:format(A, B)).
 -else.
@@ -129,7 +129,7 @@ analyze_single_clause(Clause, State = #state{parameter_info = single_clause}) ->
       OldVarDict = State#state.var_dict,
       VarDict = lists:foldl(Fold, mark_unused(OldVarDict), Vars),
       NewState0 = traverse(Body, State#state{var_dict = VarDict}),
-      NewState1 = check_clause(NewState0),
+      NewState1 = check_scope(NewState0),
       NewState1#state{var_dict = remove_defs(Vars, NewState1#state.var_dict)};
     false ->
       ?skip("Not simple clause.\n"),
@@ -195,17 +195,22 @@ traverse([Stmt|Rest], #state{var_dict = VarDict} = State) ->
 	traverse([Pattern,Body], State);
       variable ->
 	Name = erl_syntax:variable_name(Stmt),
-	case dict:find(Name, VarDict) of
-	  {ok, _Value} -> State;
-	  error ->
-	    NewVarDict =
-	      dict:store(Name, #var{first = [Pos]}, State#state.var_dict),
-	    State#state{var_dict = NewVarDict}
-	end;
+	OldVarDict = State#state.var_dict,
+	NewVarDict =
+	  case dict:find(Name, VarDict) of
+	    {ok, Value} ->
+	      dict:store(Name, Value#var{escapes = true}, OldVarDict);
+	    error ->
+	      dict:store(Name, #var{first = [Pos], escapes = true}, OldVarDict)
+	  end,
+	State#state{var_dict = NewVarDict};
       fun_expr ->
 	Clauses = erl_syntax:fun_expr_clauses(Stmt),
 	Arity = erl_syntax:fun_expr_arity(Stmt),
 	analyze_function_clauses({anon, Pos}, Arity, Clauses, State);
+      application ->
+	Args = erl_syntax:application_arguments(Stmt),
+	traverse(Args, State);
       _Other ->
 	?debug("Type: ~p\n",[_Other]),
 	State
@@ -218,7 +223,7 @@ remove_defs(Vars, Dict) ->
   Fold = fun(Key, InDict) -> dict:erase(Key, InDict) end,
   lists:foldl(Fold, Dict, Vars).
 
-check_clause(#state{var_dict = VarDict, records = Records,
+check_scope(#state{var_dict = VarDict, records = Records,
 		    function = [Fun|_]} = State) ->
   Fold =
     fun(Key, Value, Acc) ->
@@ -226,12 +231,16 @@ check_clause(#state{var_dict = VarDict, records = Records,
 	  none -> Acc;
 	  multiple -> Acc;
 	  {Record, Fields} ->
-	    AllFields = dict:fetch(Record, Records),
-	    case ordsets:subtract(AllFields, Fields) of
-	      [] -> Acc;
-	      Missing ->
-		?debug("MISSING!\nVar:~p\nFields:~p\n",[Value, Missing]),
-		[{Fun, Key, Value#var.first, Record, Missing}|Acc]
+	    case Value#var.escapes of
+	      true -> Acc;
+	      false ->
+		AllFields = dict:fetch(Record, Records),
+		case ordsets:subtract(AllFields, Fields) of
+		  [] -> Acc;
+		  Missing ->
+		    ?debug("MISSING!\nVar:~p\nFields:~p\n",[Value, Missing]),
+		    [{Fun, Key, Value#var.first, Record, Missing}|Acc]
+		end
 	    end
 	end
     end,
