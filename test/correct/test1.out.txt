@@ -1,0 +1,1 @@
+22: Within the scope of test_func3/1, the variable 'Data' is being used only as a value of record #state but the fields [field1,field2,field3] are never being used.

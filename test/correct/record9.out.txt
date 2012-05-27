@@ -1,0 +1,2 @@
+15: Within the scope of foo/1, the variable 'Arg' is being used only as a value of record #state but the fields [field2,field3,field4,field6,field7] are never being used.
+19: Within the scope of bar/1, the variable 'Arg' is being used only as a value of record #state but the fields [field1,field2,field5,field6] are never being used.

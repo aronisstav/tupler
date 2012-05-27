@@ -1,0 +1,2 @@
+17: Within the scope of an anonymous function defined at line 23, the variable 'Parameter' is being used only as a value of record #state but the fields [field2,field3,field4] are never being used.
+17: Within the scope of foo/0, the variable 'Parameter' is being used only as a value of record #state but the fields [field2,field3,field4] are never being used.

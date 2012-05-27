@@ -1,0 +1,1 @@
+ERROR: Should catch Arg#state.field1 is only used
