@@ -123,22 +123,27 @@ analyze_clause(Clause, State = #state{parameter_info = single_clause},
   ?debug("\nPatterns:\n~p\n",[Patterns]),
   ?debug("Guard:\n~p\n",[Guard]),
   ?debug("Map: ~p\n",[dict:to_list(State#state.var_dict)]),
-  case is_simple_clause(Patterns, Guard) of
+  case is_simple_clause(Patterns) of
     true ->
       OldVarDict = State#state.var_dict,
       UnusedVarDict = mark_unused(OldVarDict),
       NewState0 =
 	traverse(Patterns, State#state{var_dict = UnusedVarDict}, false),
-      NewState1 = traverse(Body, NewState0, body),
-      NewState2 =
-	case CheckScope of
-	  true -> check_scope(NewState1);
-	  false -> NewState1
+      NewState1 = 
+	case Guard of
+	  none -> NewState0;
+	  _Other -> traverse([Guard], NewState0, true)
 	end,
-      NewVarDict = NewState2#state.var_dict,
+      NewState2 = traverse(Body, NewState1, body),
+      NewState3 =
+	case CheckScope of
+	  true -> check_scope(NewState2);
+	  false -> NewState2
+	end,
+      NewVarDict = NewState3#state.var_dict,
       UpdatedVarDict = update_defs(OldVarDict, NewVarDict),
       ?debug("Updated: ~p\n",[dict:to_list(UpdatedVarDict)]),
-      NewState2#state{var_dict = UpdatedVarDict};
+      NewState3#state{var_dict = UpdatedVarDict};
     false ->
       ?skip("Not simple clause.\n"),
       State
@@ -146,16 +151,13 @@ analyze_clause(Clause, State = #state{parameter_info = single_clause},
 analyze_clause(_Clause, State, _CheckScope) ->
   State.
 
-is_simple_clause(Patterns, none) ->
+is_simple_clause(Patterns) ->
   Pred =
     fun(Term) ->
 	erl_syntax:is_leaf(Term) orelse erl_syntax:is_literal(Term)
     end,
   {_LeafOrLiteral, Others} = lists:partition(Pred, Patterns),
-  Others =:= [];
-is_simple_clause(_Patterns, _Guard) ->
-  %% SKIP
-  false.
+  Others =:= [].
 
 mark_unused(Dict) ->
   Map = fun(_Key, Val) -> #var{first = Val#var.first} end,
@@ -171,6 +173,42 @@ traverse([Stmt|Rest], #state{var_dict = VarDict} = State, Escaping) ->
   Pos = erl_syntax:get_pos(Stmt),
   NewState =
     case erl_syntax:type(Stmt) of
+      application ->
+	Args = erl_syntax:application_arguments(Stmt),
+	traverse(Args, State, true);
+      case_expr ->
+	Arg = erl_syntax:case_expr_argument(Stmt),
+	Clauses = erl_syntax:case_expr_clauses(Stmt),
+	?debug("Arg: ~p\nClauses: ~p\n", [Arg, Clauses]),
+	NewState0 = traverse([Arg], State, true),
+	analyze_clauses(Clauses, NewState0);
+      conjunction ->
+	Body = erl_syntax:conjunction_body(Stmt),
+	traverse(Body, State, true);
+      disjunction ->
+	Body = erl_syntax:disjunction_body(Stmt),
+	traverse(Body, State, true);
+      fun_expr ->
+	Clauses = erl_syntax:fun_expr_clauses(Stmt),
+	Arity = erl_syntax:fun_expr_arity(Stmt),
+	analyze_function_clauses({anon, Pos}, Arity, Clauses, State);
+      if_expr ->
+	Clauses = erl_syntax:if_expr_clauses(Stmt),
+	analyze_clauses(Clauses, State);
+      infix_expr ->
+	Left = erl_syntax:infix_expr_left(Stmt),
+	Right = erl_syntax:infix_expr_right(Stmt),
+	traverse([Left, Right], State, true);
+      list ->
+	Head = erl_syntax:list_head(Stmt),
+	Tail = erl_syntax:list_tail(Stmt),
+	traverse([Head, Tail], State, true);
+      match_expr ->
+	Pattern = erl_syntax:match_expr_pattern(Stmt),
+	Body = erl_syntax:match_expr_body(Stmt),
+	?debug("Pattern: ~p\nBody: ~p\n",[Pattern, Body]),
+	NewState0 = traverse([Pattern], State, true),
+	traverse([Body], NewState0, body);
       record_access ->
 	Arg = erl_syntax:variable_name(erl_syntax:record_access_argument(Stmt)),
 	Field = erl_syntax:concrete(erl_syntax:record_access_field(Stmt)),
@@ -190,12 +228,20 @@ traverse([Stmt|Rest], #state{var_dict = VarDict} = State, Escaping) ->
 	      #var{as_record = NewAsRecord}
 	  end,
 	State#state{var_dict = dict:store(Arg, NewVar, VarDict)};
-      match_expr ->
-	Pattern = erl_syntax:match_expr_pattern(Stmt),
-	Body = erl_syntax:match_expr_body(Stmt),
-	?debug("Pattern: ~p\nBody: ~p\n",[Pattern, Body]),
-	NewState0 = traverse([Pattern], State, false),
-	traverse([Body], NewState0, body);
+      record_expr ->
+	Arg = erl_syntax:record_expr_argument(Stmt),
+	_Type = erl_syntax:record_expr_type(Stmt),
+	_Fields = erl_syntax:record_expr_fields(Stmt),
+	?debug("Arg: ~p\nType: ~p\nFields: ~p\n",[Arg, _Type, _Fields]),
+	NewState0 =
+	  case Arg of
+	    none -> State;
+	    Other -> traverse([Other], State, true)
+	  end,
+	NewState0;
+      tuple ->
+	Elements = erl_syntax:tuple_elements(Stmt),
+	traverse(Elements, State, true);
       variable ->
 	Name = erl_syntax:variable_name(Stmt),
 	?debug("Name: ~p ",[Name]),
@@ -211,19 +257,6 @@ traverse([Stmt|Rest], #state{var_dict = VarDict} = State, Escaping) ->
 	  end,
 	NewVarDict = dict:store(Name, NewValue, State#state.var_dict),
 	State#state{var_dict = NewVarDict};
-      fun_expr ->
-	Clauses = erl_syntax:fun_expr_clauses(Stmt),
-	Arity = erl_syntax:fun_expr_arity(Stmt),
-	analyze_function_clauses({anon, Pos}, Arity, Clauses, State);
-      application ->
-	Args = erl_syntax:application_arguments(Stmt),
-	traverse(Args, State, true);
-      case_expr ->
-	Arg = erl_syntax:case_expr_argument(Stmt),
-	Clauses = erl_syntax:case_expr_clauses(Stmt),
-	?debug("Arg: ~p\nClauses: ~p\n", [Arg, Clauses]),
-	NewState0 = traverse([Arg], State, true),
-	analyze_clauses(Clauses, NewState0);
       _Other ->
 	?debug("Type: ~p\n",[_Other]),
 	State
