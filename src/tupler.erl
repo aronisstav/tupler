@@ -19,7 +19,7 @@
 	  as_record = none  :: none | {one, atom(), [atom()]} | multiple
 	 }).
 
--define(DEBUG, on).
+%% -define(DEBUG, on).
 -ifdef(DEBUG).
 -define(debug(A, B), io:format(A, B)).
 -else.
@@ -40,7 +40,7 @@ analyze(Filename) ->
   case dialyzer_utils:get_abstract_code_from_beam(Filename) of
     {ok, Abstract} ->
       Warnings = analyze_abstract(Abstract),
-      print_warnings(Warnings);
+      print_warnings(lists:reverse(Warnings));
     error -> 
       io:format("Unable to retrieve abstract code from ~s\n",[Filename])
   end.
@@ -95,7 +95,7 @@ analyze_function_clauses(Name, Arity, [Clause], State) ->
   NewState =
     State#state{function = [{Name,Arity}|OldFunction],
 		parameter_info = single_clause},
-  NewState1 = analyze_single_clause(Clause, NewState),
+  NewState1 = analyze_clause(Clause, NewState, true),
   NewState1#state{function = OldFunction};
 analyze_function_clauses(Name, Arity, Clauses, State) ->
   OldFunction = State#state.function,
@@ -103,64 +103,71 @@ analyze_function_clauses(Name, Arity, Clauses, State) ->
   NewState =
     State#state{function = [{Name,Arity}|OldFunction],
 		parameter_info = ParameterInfo},
-  NewState1 = analyze_function_clauses(Clauses, NewState),
+  NewState1 = analyze_clauses(Clauses, NewState),
   NewState1#state{function = OldFunction}.
 
-analyze_function_clauses([], State) ->
+analyze_clauses([], #state{var_dict = _VarDict} = State) ->
+  ?debug("Clauses done: ~p\n",[dict:to_list(_VarDict)]),
   State;
-analyze_function_clauses([Clause|Rest], State) ->
+analyze_clauses([Clause|Rest], State) ->
   ?debug("Clause:\n"),
-  NewState = analyze_single_clause(Clause, State),
-  analyze_function_clauses(Rest, NewState).
+  NewState = analyze_clause(Clause, State, false),
+  ?debug("Clause done: ~p\n",[dict:to_list(NewState#state.var_dict)]),
+  analyze_clauses(Rest, NewState).
   
-analyze_single_clause(Clause, State = #state{parameter_info = single_clause}) ->
+analyze_clause(Clause, State = #state{parameter_info = single_clause},
+	       CheckScope) ->
   Patterns = erl_syntax:clause_patterns(Clause),
   Guard    = erl_syntax:clause_guard(Clause),
   Body     = erl_syntax:clause_body(Clause),
-  ?debug("Patterns:\n~p\n",[Patterns]),
+  ?debug("\nPatterns:\n~p\n",[Patterns]),
   ?debug("Guard:\n~p\n",[Guard]),
+  ?debug("Map: ~p\n",[dict:to_list(State#state.var_dict)]),
   case is_simple_clause(Patterns, Guard) of
-    {true, Vars} ->
-      ?debug("VARS:\n~p\n",[Vars]),
-      Fold =
-	fun({Name, Pos}, Dict) ->
-	    dict:store(Name, #var{first = [Pos]}, Dict)
-	end,
+    true ->
       OldVarDict = State#state.var_dict,
-      VarDict = lists:foldl(Fold, mark_unused(OldVarDict), Vars),
-      NewState0 = traverse(Body, State#state{var_dict = VarDict}),
-      NewState1 = check_scope(NewState0),
-      NewState1#state{var_dict = remove_defs(Vars, NewState1#state.var_dict)};
+      UnusedVarDict = mark_unused(OldVarDict),
+      NewState0 =
+	traverse(Patterns, State#state{var_dict = UnusedVarDict}, false),
+      NewState1 = traverse(Body, NewState0, body),
+      NewState2 =
+	case CheckScope of
+	  true -> check_scope(NewState1);
+	  false -> NewState1
+	end,
+      NewVarDict = NewState2#state.var_dict,
+      UpdatedVarDict = update_defs(OldVarDict, NewVarDict),
+      ?debug("Updated: ~p\n",[dict:to_list(UpdatedVarDict)]),
+      NewState2#state{var_dict = UpdatedVarDict};
     false ->
       ?skip("Not simple clause.\n"),
       State
   end;
-analyze_single_clause(_Clause, State) ->
+analyze_clause(_Clause, State, _CheckScope) ->
   State.
 
 is_simple_clause(Patterns, none) ->
-  Pred = fun(Term) ->
-	     Type = erl_syntax:type(Term),
-	     var_or_underscore(Type)
-	 end,
-  {Vars, NonVars} = lists:partition(Pred, Patterns),
-  case NonVars =:= [] of
-    true  ->
-      {true, [{erl_syntax:variable_name(Var), erl_syntax:get_pos(Var)} ||
-	       Var <- Vars]};
-    false -> false
-  end.
-
-var_or_underscore(variable) -> true;
-var_or_underscore(underscore) -> true;
-var_or_underscore(_Other) -> false.
+  Pred =
+    fun(Term) ->
+	erl_syntax:is_leaf(Term) orelse erl_syntax:is_literal(Term)
+    end,
+  {_LeafOrLiteral, Others} = lists:partition(Pred, Patterns),
+  Others =:= [];
+is_simple_clause(_Patterns, _Guard) ->
+  %% SKIP
+  false.
 
 mark_unused(Dict) ->
   Map = fun(_Key, Val) -> #var{first = Val#var.first} end,
   dict:map(Map, Dict).
 
-traverse([Stmt|Rest], #state{var_dict = VarDict} = State) ->
-  ?debug("Stmt:\n~p\n",[Stmt]),
+traverse([_Stmt] = Single, State, body) ->
+  ?debug("Next statement is last in list and will be considered escaping!\n"),
+  traverse(Single, State, true);
+traverse([Stmt|Rest], #state{var_dict = VarDict} = State, Escaping) ->
+  ?debug("\nStmt:\n~p\n",[Stmt]),
+  ?debug("Escaping: ~p\n", [Escaping]),
+  ?debug("Map: ~p\n",[dict:to_list(VarDict)]),
   Pos = erl_syntax:get_pos(Stmt),
   NewState =
     case erl_syntax:type(Stmt) of
@@ -170,39 +177,39 @@ traverse([Stmt|Rest], #state{var_dict = VarDict} = State) ->
 	Record = erl_syntax:data(erl_syntax:record_access_type(Stmt)),
 	?debug("Arg: ~p\nField: ~p\nType: ~p\n",
 	       [Arg, Field, Record]),
+	NewAsRecord = {Record, [Field]},
 	NewVar =
 	  case dict:find(Arg, VarDict) of
 	    {ok, Value} ->
 	      ?debug("Lookup value: ~p\n", [Value]),
-	      case Value#var.as_record of
-		none ->
-		  Value#var{as_record = {Record, [Field]}};
-		{Record, Fields} ->
-		  NewFields = ordsets:add_element(Field, Fields),
-		  Value#var{as_record = {Record, NewFields}};
-		_Other ->
-		  Value#var{as_record = multiple}
-	      end;
+	      MergedAsRecord =
+		merge_as_record(Value#var.as_record, NewAsRecord),
+	      Value#var{as_record = MergedAsRecord};
 	    error ->
 	      ?debug("Lookup error\n"),
-	      #var{as_record = {Record, [Field]}}
+	      #var{as_record = NewAsRecord}
 	  end,
 	State#state{var_dict = dict:store(Arg, NewVar, VarDict)};
       match_expr ->
 	Pattern = erl_syntax:match_expr_pattern(Stmt),
 	Body = erl_syntax:match_expr_body(Stmt),
-	?debug("Pattern:~p\nBody:~p\n",[Pattern, Body]),
-	traverse([Pattern,Body], State);
+	?debug("Pattern: ~p\nBody: ~p\n",[Pattern, Body]),
+	NewState0 = traverse([Pattern], State, false),
+	traverse([Body], NewState0, body);
       variable ->
 	Name = erl_syntax:variable_name(Stmt),
-	OldVarDict = State#state.var_dict,
-	NewVarDict =
+	?debug("Name: ~p ",[Name]),
+	NewValue0 =
 	  case dict:find(Name, VarDict) of
-	    {ok, Value} ->
-	      dict:store(Name, Value#var{escapes = true}, OldVarDict);
-	    error ->
-	      dict:store(Name, #var{first = [Pos], escapes = true}, OldVarDict)
+	    {ok, Value} -> Value;
+	    error -> #var{first = [Pos]}
 	  end,
+	NewValue =
+	  case Escaping of
+	    true -> NewValue0#var{escapes = true};
+	    _Other -> NewValue0
+	  end,
+	NewVarDict = dict:store(Name, NewValue, State#state.var_dict),
 	State#state{var_dict = NewVarDict};
       fun_expr ->
 	Clauses = erl_syntax:fun_expr_clauses(Stmt),
@@ -210,23 +217,47 @@ traverse([Stmt|Rest], #state{var_dict = VarDict} = State) ->
 	analyze_function_clauses({anon, Pos}, Arity, Clauses, State);
       application ->
 	Args = erl_syntax:application_arguments(Stmt),
-	traverse(Args, State);
+	traverse(Args, State, true);
+      case_expr ->
+	Arg = erl_syntax:case_expr_argument(Stmt),
+	Clauses = erl_syntax:case_expr_clauses(Stmt),
+	?debug("Arg: ~p\nClauses: ~p\n", [Arg, Clauses]),
+	NewState0 = traverse([Arg], State, true),
+	analyze_clauses(Clauses, NewState0);
       _Other ->
 	?debug("Type: ~p\n",[_Other]),
 	State
     end,
-  traverse(Rest, NewState);
-traverse([], State) ->
+  traverse(Rest, NewState, Escaping);
+traverse([], State, _Escaping) ->
   State.
-  
-remove_defs(Vars, Dict) ->
-  Fold = fun(Key, InDict) -> dict:erase(Key, InDict) end,
-  lists:foldl(Fold, Dict, Vars).
+
+merge_as_record(none, Value2) ->
+  Value2;
+merge_as_record(Value1, none) ->
+  Value1;
+merge_as_record({Record, Fields1}, {Record, Fields2}) ->
+  {Record, ordsets:union(Fields1, Fields2)};
+merge_as_record(_Value1, _Value2) ->
+  multiple.
+
+update_defs(OldVarDict, NewVarDict) ->
+  Map =
+    fun(Key, Value) ->
+	NewValue = dict:fetch(Key, NewVarDict),
+	OldAsRecord = Value#var.as_record,
+	NewAsRecord = NewValue#var.as_record,
+	?debug("MERGE:\n~p\n~p\n",[OldAsRecord, NewAsRecord]),
+	Value#var{as_record = merge_as_record(OldAsRecord, NewAsRecord)}
+    end,
+  dict:map(Map, OldVarDict).
 
 check_scope(#state{var_dict = VarDict, records = Records,
 		    function = [Fun|_]} = State) ->
+  ?debug("End of scope!\n"),
   Fold =
     fun(Key, Value, Acc) ->
+	?debug("Var: ~p\nValue: ~p\n",[Key, Value]),
 	case Value#var.as_record of
 	  none -> Acc;
 	  multiple -> Acc;
@@ -238,7 +269,7 @@ check_scope(#state{var_dict = VarDict, records = Records,
 		case ordsets:subtract(AllFields, Fields) of
 		  [] -> Acc;
 		  Missing ->
-		    ?debug("MISSING!\nVar:~p\nFields:~p\n",[Value, Missing]),
+		    ?debug("MISSING!\nVar: ~p\nFields: ~p\n",[Value, Missing]),
 		    [{Fun, Key, Value#var.first, Record, Missing}|Acc]
 		end
 	    end
