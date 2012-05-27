@@ -231,14 +231,17 @@ traverse([Stmt|Rest], #state{var_dict = VarDict} = State, Escaping) ->
       record_expr ->
 	Arg = erl_syntax:record_expr_argument(Stmt),
 	_Type = erl_syntax:record_expr_type(Stmt),
-	_Fields = erl_syntax:record_expr_fields(Stmt),
-	?debug("Arg: ~p\nType: ~p\nFields: ~p\n",[Arg, _Type, _Fields]),
+	Fields = erl_syntax:record_expr_fields(Stmt),
+	?debug("Arg: ~p\nType: ~p\nFields: ~p\n",[Arg, _Type, Fields]),
 	NewState0 =
 	  case Arg of
 	    none -> State;
 	    Other -> traverse([Other], State, true)
 	  end,
-	NewState0;
+	traverse(Fields, NewState0, true);
+      record_field ->
+	Value = erl_syntax:record_field_value(Stmt),
+	traverse([Value], State, true);
       tuple ->
 	Elements = erl_syntax:tuple_elements(Stmt),
 	traverse(Elements, State, true);
@@ -322,8 +325,8 @@ print_warnings([{Fun, Var, [Loc], Record, Missing}|Rest]) ->
       Other        ->
 	io_lib:format("~p/~p",[Other, Arity])
     end,
-  io:format("~p: Within the scope of ~s, the variable ~p is being used only as a"
-	    " value of record #~p but the fields ~w are never being used.\n",
+  io:format("~p: Within the scope of ~s, the variable ~p is being used only as"
+	    "a value of record #~p but the fields ~w are never being used.\n",
 	    [Loc, Id, Var, Record, Missing]),
   print_warnings(Rest).
   
