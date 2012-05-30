@@ -1,1 +1,1 @@
-ERROR: Should print something for: foo(Arg) when Arg#state.field1 =:= foo ->
+10: Within the scope of foo/1, the variable 'Arg' is being used only as a value of record #state but the fields [field2] are never being used.

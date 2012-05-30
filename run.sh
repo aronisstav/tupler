@@ -27,7 +27,7 @@ for name in test/out/*.out.txt;
 do
 	var=$(basename $name .out.txt)
 	if [[ -e "test/correct/${var}.out.txt" ]] ; then
-		diff ${name}  test/correct/${var}.out.txt > aux.txt
+		diff test/correct/${var}.out.txt ${name} > aux.txt
 		if [[ -s "./aux.txt" ]] ; then
 			let failed+=1
 			echo "ERROR: @ $name"

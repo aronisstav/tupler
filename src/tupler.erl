@@ -326,7 +326,7 @@ print_warnings([{Fun, Var, [Loc], Record, Missing}|Rest]) ->
 	io_lib:format("~p/~p",[Other, Arity])
     end,
   io:format("~p: Within the scope of ~s, the variable ~p is being used only as"
-	    "a value of record #~p but the fields ~w are never being used.\n",
+	    " a value of record #~p but the fields ~w are never being used.\n",
 	    [Loc, Id, Var, Record, Missing]),
   print_warnings(Rest).
   
