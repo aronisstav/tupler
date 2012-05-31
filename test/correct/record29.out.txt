@@ -1,0 +1,1 @@
+15: Within the scope of get_slot/2, the variable 'T' is being used only as a value of record #state but the fields [field4,field5] are never being used.
