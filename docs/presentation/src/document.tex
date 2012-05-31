@@ -1,0 +1,89 @@
+%% LaTeX Beamer presentation template (requires beamer package)
+%% see http://latex-beamer.sourceforge.net/
+%% idea contributed by H. Turgut Uyar
+%% template based on a template by Till Tantau
+%% this template is still evolving - it might differ in future releases!
+
+\documentclass{beamer}
+
+\usepackage{graphicx}
+\usepackage{algorithmic}
+\usepackage{algorithm}
+\usepackage{listings}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{setspace}
+\usepackage{verbatim}
+\usepackage{color}
+
+\mode<presentation>
+{
+\usetheme{CambridgeUS}
+
+\setbeamercovered{transparent}
+}
+
+\usepackage[english]{babel}
+\usepackage[latin1]{inputenc}
+
+% font definitions, try \usepackage{ae} instead of the following
+% three lines if you don't like this look
+\usepackage{mathptmx}
+\usepackage[scaled=.90]{helvet}
+\usepackage{courier}
+
+
+\usepackage[T1]{fontenc}
+
+\title{Compiler Design II}
+
+\subtitle{\textsc{Design and Implementation of Recorder Analyzer}}
+
+% - Use the \inst{?} command only if the authors have different
+%   affiliation.
+%\author{F.~Author\inst{1} \and S.~Another\inst{2}}
+\author[Aronis \& Koukos]{Stavros Aronis \\ Konstantinos Koukos}
+
+% - Use the \inst command only if there are several affiliations.
+% - Keep it simple, no one is interested in your street address.
+\institute[Uppsala University]
+{
+\textsc{\Large Uppsala University}\\[0.1cm]
+\textsc{\Large Department of Information Technology}\\[2.0cm]
+\vfill
+}
+
+\date{\today}
+
+\begin{document}
+
+\begin{frame}
+\titlepage
+\end{frame}
+
+\begin{frame}
+\frametitle{Outline}
+\tableofcontents[hideallsubsections]
+% You might wish to add the option [pausesections]
+\end{frame}
+
+\input{./intro.tex}
+
+\input{./objectives.tex}
+
+\input{./status.tex}
+
+\input{./future.tex}
+
+\input{./conclusions.tex}
+
+\section{Questions}
+\begin{frame}
+\begin{block}{}
+\begin{center}
+\Huge Questions?
+\end{center}
+\end{block}
+\end{frame}
+
+\end{document}
