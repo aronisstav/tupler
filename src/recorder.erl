@@ -195,6 +195,17 @@ traverse([Stmt|Rest], #state{var_dict = VarDict} = State, Escaping) ->
 	?debug("Pattern: ~p\nBody: ~p\n",[Pattern, Body]),
 	NewState0 = traverse([Pattern], State, true),
 	traverse([Body], NewState0, body);
+      receive_expr ->
+	Clauses = erl_syntax:receive_expr_clauses(Stmt),
+	Timeout = erl_syntax:receive_expr_timeout(Stmt),
+	Action = erl_syntax:receive_expr_action(Stmt),
+	NewState0 = analyze_clauses(Clauses, State),
+	NewState1 =
+	  case Timeout of
+	    none -> NewState0;
+	    _Other -> traverse([Timeout], NewState0, true)
+	  end,
+	traverse(Action, NewState1, body);
       record_access ->
 	Arg = erl_syntax:variable_name(erl_syntax:record_access_argument(Stmt)),
 	Field = erl_syntax:concrete(erl_syntax:record_access_field(Stmt)),
@@ -234,13 +245,13 @@ traverse([Stmt|Rest], #state{var_dict = VarDict} = State, Escaping) ->
       variable ->
 	Name = erl_syntax:variable_name(Stmt),
 	?debug("Name: ~p ",[Name]),
-	NewValue0 =
+	{Existing, NewValue0} =
 	  case dict:find(Name, VarDict) of
-	    {ok, Value} -> Value;
-	    error -> #var{first = [Pos]}
+	    {ok, Value} -> {true, Value};
+	    error -> {false, #var{first = [Pos]}}
 	  end,
 	NewValue =
-	  case Escaping of
+	  case Escaping or Existing of
 	    true -> NewValue0#var{escapes = true};
 	    _Other -> NewValue0
 	  end,
