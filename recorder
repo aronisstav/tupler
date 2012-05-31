@@ -2,8 +2,11 @@
 %%! -pa ebin
 
 main([Arg]) ->
-  recorder:analyze(Arg),
-  halt(0);
+  try recorder:analyze(Arg) of
+      _Ret -> halt(0)
+  catch
+      _:_ -> halt(1)
+  end;
 main(_Args) ->
   Error = "ERROR: Please give a single beam file as argument to the script.\n",
   io:format(Error),
