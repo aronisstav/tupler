@@ -1,6 +1,6 @@
 %% -*- erlang-indent-level: 2 -*-
 
--module(tupler).
+-module(recorder).
 
 -export([analyze/1]).
 

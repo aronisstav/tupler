@@ -1,9 +1,9 @@
 TESTS=$(wildcard test/*.erl)
 TESTBEAMS=$(TESTS:%.erl=%.beam)
 
-all: ebin/tupler.beam
+all: ebin/recorder.beam
 
-ebin/tupler.beam: src/tupler.erl ebin
+ebin/recorder.beam: src/recorder.erl ebin
 	erlc +debug_info -o ebin $<
 
 ebin:

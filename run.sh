@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echo "Building Tupler."
+echo "Building Recorder."
 make all
 
 echo "Building Tests."
@@ -13,8 +13,8 @@ echo "Executing Tests."
 for name in test/*.beam;
 do
 	var=$(basename $name .beam)
-	./tupler ${name} > test/out/${var}.out.txt
-	echo "./tupler ${name} > out/${var}.out.txt"
+	./recorder ${name} > test/out/${var}.out.txt
+	echo "./recorder ${name} > out/${var}.out.txt"
 done
 
 echo "Parsing Results."

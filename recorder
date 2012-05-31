@@ -2,7 +2,7 @@
 %%! -pa ebin
 
 main([Arg]) ->
-  tupler:analyze(Arg),
+  recorder:analyze(Arg),
   halt(0);
 main(_Args) ->
   Error = "ERROR: Please give a single beam file as argument to the script.\n",
