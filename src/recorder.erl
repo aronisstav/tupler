@@ -123,41 +123,27 @@ analyze_clause(Clause, State = #state{parameter_info = single_clause},
   ?debug("\nPatterns:\n~p\n",[Patterns]),
   ?debug("Guard:\n~p\n",[Guard]),
   ?debug("Map: ~p\n",[dict:to_list(State#state.var_dict)]),
-  case is_simple_clause(Patterns) of
-    true ->
-      OldVarDict = State#state.var_dict,
-      UnusedVarDict = mark_unused(OldVarDict),
-      NewState0 =
-	traverse(Patterns, State#state{var_dict = UnusedVarDict}, false),
-      NewState1 = 
-	case Guard of
-	  none -> NewState0;
-	  _Other -> traverse([Guard], NewState0, true)
-	end,
-      NewState2 = traverse(Body, NewState1, body),
-      NewState3 =
-	case CheckScope of
-	  true -> check_scope(NewState2);
-	  false -> NewState2
-	end,
-      NewVarDict = NewState3#state.var_dict,
-      UpdatedVarDict = update_defs(OldVarDict, NewVarDict),
-      ?debug("Updated: ~p\n",[dict:to_list(UpdatedVarDict)]),
-      NewState3#state{var_dict = UpdatedVarDict};
-    false ->
-      ?skip("Not simple clause.\n"),
-      State
-  end;
+  OldVarDict = State#state.var_dict,
+  UnusedVarDict = mark_unused(OldVarDict),
+  NewState0 =
+    traverse(Patterns, State#state{var_dict = UnusedVarDict}, false),
+  NewState1 = 
+    case Guard of
+      none -> NewState0;
+      _Other -> traverse([Guard], NewState0, true)
+    end,
+  NewState2 = traverse(Body, NewState1, body),
+  NewState3 =
+    case CheckScope of
+      true -> check_scope(NewState2);
+      false -> NewState2
+    end,
+  NewVarDict = NewState3#state.var_dict,
+  UpdatedVarDict = update_defs(OldVarDict, NewVarDict),
+  ?debug("Updated: ~p\n",[dict:to_list(UpdatedVarDict)]),
+  NewState3#state{var_dict = UpdatedVarDict};
 analyze_clause(_Clause, State, _CheckScope) ->
   State.
-
-is_simple_clause(Patterns) ->
-  Pred =
-    fun(Term) ->
-	erl_syntax:is_leaf(Term) orelse erl_syntax:is_literal(Term)
-    end,
-  {_LeafOrLiteral, Others} = lists:partition(Pred, Patterns),
-  Others =:= [].
 
 mark_unused(Dict) ->
   Map = fun(_Key, Val) -> #var{first = Val#var.first} end,
@@ -283,8 +269,11 @@ update_defs(OldVarDict, NewVarDict) ->
 	NewValue = dict:fetch(Key, NewVarDict),
 	OldAsRecord = Value#var.as_record,
 	NewAsRecord = NewValue#var.as_record,
+	OldEscapes =  Value#var.escapes,
+	NewEscapes =  NewValue#var.escapes,
 	?debug("MERGE:\n~p\n~p\n",[OldAsRecord, NewAsRecord]),
-	Value#var{as_record = merge_as_record(OldAsRecord, NewAsRecord)}
+	Value#var{as_record = merge_as_record(OldAsRecord, NewAsRecord),
+		  escapes = OldEscapes or NewEscapes}
     end,
   dict:map(Map, OldVarDict).
 
